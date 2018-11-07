@@ -1,6 +1,7 @@
 from decimal import Decimal
 from urllib.parse import urljoin
 import urllib3
+import unicodedata
 
 import dateutil.parser as parser
 from bs4 import BeautifulSoup
@@ -8,9 +9,10 @@ import requests
 
 barca_url = 'https://en.wikipedia.org/wiki/FC_Barcelona'
 wiki_base_url = 'https://en.wikipedia.org/wiki/'
-players = ['Lionel_Messi', 'Tim_Howard']
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+EN_DASH = u"\u2013"
 
 
 def get_current_squad_info():
@@ -55,7 +57,7 @@ class Player(object):
         self.first_name, self.last_name = self.getName()
         self.dob = self.getBirthdate()
         self.birth_city, self.birth_state, self.birth_country = self.getBirthplace()
-        self.nationality = self.birth_country
+        self.national_team = self.getNationalTeam()
         self.height = self.getHeight()
         self.position = self.getPosition()
         self.number = self.getNumber()
@@ -68,10 +70,6 @@ class Player(object):
     def getName(self):
         name = self._source.find('caption').text
         name_parts = name.split()
-        # for i, part in enumerate(name_parts):
-        #     if part[0].islower():
-        #         name_parts[i] = name_parts[i] + ' ' + name_parts[i+1]
-        #         name_parts.remove(name_parts[i+1])
         if len(name_parts) > 2:
             name_parts = [name_parts[0], ' '.join(name_parts[1:])]
         elif len(name_parts) == 1:
@@ -83,7 +81,8 @@ class Player(object):
         birthplace_split = birthplace.strip().split(', ')
         if len(birthplace_split) < 3:
             birthplace_split.insert(1, None)
-        return birthplace_split
+        city_state_country = [_remove_notation(item) for item in birthplace_split]
+        return city_state_country
 
     def getHeight(self):
         heights = self._source.find(text='Height').findNext('td').text
@@ -94,10 +93,22 @@ class Player(object):
         return self._source.find(text='Playing position').findNext('td').text.strip()
 
     def getNumber(self):
-        return int(self._source.find(text='Number').findNext('td').text)
+        return int(self._source.find(text='Number').findNext('td').text.strip())
 
     def getCurrentTeam(self):
         return self._source.find(text='Current team').findNext('td').text.strip()
+
+    def getNationalTeam(self):
+        header = self._source.find(text='National team')
+        if header:
+            next_row = header.findNext('tr')
+            while next_row.find('th') and not next_row.find('th').get('colspan'):
+                if next_row.text.split()[0].strip()[-1] == EN_DASH:
+                    return next_row.text.split()[1].strip()
+                next_row = next_row.findNext('tr')
+        else:
+            return None
+
 
     def _to_dict(self):
         return {
@@ -107,23 +118,24 @@ class Player(object):
             'birth_city': self.birth_city,
             'birth_state': self.birth_state,
             'birth_country': self.birth_country,
-            'nationality': self.nationality,
+            'national_team': self.national_team,
             'height_m': self.height,
             'position': self.position,
             'number': self.number,
             'current_team': self.club_team,
         }
 
+def _remove_notation(str):
+    if str and '[' in str:
+        i_start = str.index('[')
+        return str[:i_start]
+    else:
+        return str
 
-# player_data = []
-# for player in players:
-#     player_info = get_player_info(wiki_base_url + player)
-#     player_data.append(player_info._to_dict())
 player_data = get_current_squad_info()
 for player in player_data:
     print(player._to_dict())
 
-# print(player_data)
 
 
 
