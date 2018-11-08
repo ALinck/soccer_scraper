@@ -7,16 +7,31 @@ import dateutil.parser as parser
 from bs4 import BeautifulSoup
 import requests
 
-barca_url = 'https://en.wikipedia.org/wiki/FC_Barcelona'
 wiki_base_url = 'https://en.wikipedia.org/wiki/'
-
+# barca_url = wiki_base_url + 'FC_Barcelona'
+la_liga_url = wiki_base_url + 'La_Liga'
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 EN_DASH = u"\u2013"
 
+birthplace_tuple = (None, None, None)
 
-def get_current_squad_info():
-    source = requests.get(barca_url, verify=False)
+
+def get_league_teams():
+    source = requests.get(la_liga_url, verify=False)
+    page = BeautifulSoup(source.text)
+    teams_rows = page.find('span', attrs={'id': 'Stadiums_and_locations'}).findNext('tbody').find_all('tr')
+    teams_urls = []
+    for tr in teams_rows:
+        td = tr.find('td')
+        if td:
+            teams_urls.append(urljoin(wiki_base_url, td.find('a').get('href')))
+    # teams_urls = [urljoin(wiki_base_url, tr.find('td').find('a').get('href')) for tr in teams_rows ]
+    return teams_urls
+
+
+def get_current_squad_info(team_url):
+    source = requests.get(team_url, verify=False)
     page = BeautifulSoup(source.text)
     members_section = page.find('span', attrs={'id': 'Current_squad'}).parent
     members_table = members_section.find_next_sibling('table')
@@ -25,9 +40,9 @@ def get_current_squad_info():
     team = Team(member_cards)
     player_data = []
     for url in team.player_urls:
-        player_data.append(get_player_info(url))
+        if 'redlink' not in url:
+            player_data.append(get_player_info(url))
     return player_data
-
 
 
 def get_player_info(player_url):
@@ -37,10 +52,11 @@ def get_player_info(player_url):
     player = Player(player_card)
     return player
 
+
 class Team(object):
     def __init__(self, current_squad):
         self.current_squad = current_squad
-        self.player_urls = self.getPlayerUrls();
+        self.player_urls = self.getPlayerUrls()
 
     def getPlayerUrls(self):
         player_urls = []
@@ -77,23 +93,38 @@ class Player(object):
         return name_parts
 
     def getBirthplace(self):
-        birthplace = self._source.find('td', class_='birthplace').text
-        birthplace_split = birthplace.strip().split(', ')
-        if len(birthplace_split) < 3:
-            birthplace_split.insert(1, None)
-        city_state_country = [_remove_notation(item) for item in birthplace_split]
-        return city_state_country
+        birthplace_source = self._source.find('td', class_='birthplace').text
+        birthplace_split = birthplace_source.strip().split(', ')
+        birthplace = [None, None, None]
+        for i, item in reversed(list(enumerate(birthplace_split))):
+            birthplace[-i] = _remove_notation(item)
+        # if len(birthplace_split) < 2:
+        #     birthplace_split.insert(1, None)
+        # if len(birthplace_split) < 3:
+        #     birthplace_split.insert(1, None)
+        # country_state_city = [_remove_notation(item) for item in birthplace_split]
+        # return country_state_city
+        return birthplace
 
     def getHeight(self):
         heights = self._source.find(text='Height').findNext('td').text
         heights_split = heights.replace('(', '')[:heights.index(')')-1].split()
-        return Decimal(heights_split[heights_split.index('m') - 1])
+        if 'm' in heights_split:
+            height_m = heights_split[heights_split.index('m') - 1]
+        else:
+            height_m = [item.split('m')[0] for item in heights_split if 'm' in item][0]
+            # for item in heights_split:
+            #     if 'm' in item:
+            #         height_m = item.split('m')[0]
+
+        return Decimal(height_m)
 
     def getPosition(self):
         return self._source.find(text='Playing position').findNext('td').text.strip()
 
     def getNumber(self):
-        return int(self._source.find(text='Number').findNext('td').text.strip())
+        number_header = self._source.find(text='Number')
+        return int(number_header.findNext('td').text.strip()) if number_header else None
 
     def getCurrentTeam(self):
         return self._source.find(text='Current team').findNext('td').text.strip()
@@ -131,8 +162,10 @@ def _remove_notation(str):
         return str[:i_start]
     else:
         return str
-
-player_data = get_current_squad_info()
+player_data = []
+team_urls = get_league_teams()
+for url in team_urls:
+    player_data.extend(get_current_squad_info(url))
 for player in player_data:
     print(player._to_dict())
 
