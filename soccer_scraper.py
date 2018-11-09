@@ -9,24 +9,32 @@ import requests
 
 wiki_base_url = 'https://en.wikipedia.org/wiki/'
 # barca_url = wiki_base_url + 'FC_Barcelona'
-la_liga_url = wiki_base_url + 'La_Liga'
+# la_liga_url = wiki_base_url + 'La_Liga'
+uefa_url = wiki_base_url + 'UEFA'
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 EN_DASH = u"\u2013"
+CLUB_SECTIONS = ['Clubs', 'Serie_A_clubs', 'Current_clubs', 'Current_members', 'Teams', 'Current_teams_(8 2018–19)']
 
 birthplace_tuple = (None, None, None)
 
 
-def get_league_teams():
-    source = requests.get(la_liga_url, verify=False)
+def get_leagues_by_confederation():
+    source = requests.get(uefa_url, verify=False)
     page = BeautifulSoup(source.text)
-    teams_rows = page.find('span', attrs={'id': 'Stadiums_and_locations'}).findNext('tbody').find_all('tr')
-    teams_urls = []
-    for tr in teams_rows:
-        td = tr.find('td')
-        if td:
-            teams_urls.append(urljoin(wiki_base_url, td.find('a').get('href')))
-    # teams_urls = [urljoin(wiki_base_url, tr.find('td').find('a').get('href')) for tr in teams_rows ]
+    league_rows = page.find('span', attrs={'id': 'League_revenues'}).findNext('tbody').find_all('tr')
+    league_urls = []
+    for tr in league_rows:
+        team_link = tr.findNext('a')
+        if team_link:
+            league_urls.append(urljoin(wiki_base_url, team_link.get('href')))
+    return league_urls
+
+
+def get_league_teams(url):
+    source = requests.get(url, verify=False)
+    page = BeautifulSoup(source.text)
+    teams_urls = _find_teams(page)
     return teams_urls
 
 
@@ -51,6 +59,57 @@ def get_player_info(player_url):
     player_card = page.find('table', class_='infobox vcard')
     player = Player(player_card)
     return player
+
+
+def _find_teams(page):
+    teams_section = _find_teams_by_stadium(page) or _find_teams_by_manager(page) or _find_teams_in_club_section(page)
+    return teams_section
+
+def _find_teams_in_club_section(page):
+    # teams = [page.find('span', attrs={'id': clubs_id}) for clubs_id in CLUB_SECTIONS if any(id in page.find('span', attrs={'id': clubs_id})['id'] for id in CLUB_SECTIONS)]
+    teams = None
+    for clubs_id in CLUB_SECTIONS:
+        section = page.find('span', attrs={'id': clubs_id})
+        if section: # and any(id in section['id'] for id in CLUB_SECTIONS):
+            teams = section
+            break
+
+    if teams:
+        teams_urls = []
+        teams_rows = teams.findNext('tbody').find_all('tr')
+        for tr in teams_rows:
+            club_row = tr.find('td')
+            if club_row:
+                teams_urls.append(tr.find('td').find('a').get('href'))
+        return teams_urls
+    return None
+
+
+def _find_teams_by_stadium(page):
+    teams = page.find('span', attrs={'id': 'Stadiums_and_locations'})
+    if teams:
+        teams_urls = []
+        teams_rows = teams.findNext('tbody').find_all('tr')
+        for tr in teams_rows:
+            td = tr.find('td')
+            if td:
+                teams_urls.append(urljoin(wiki_base_url, td.find('a').get('href')))
+        return teams_urls
+    return None
+
+def _find_teams_by_manager(page):
+    teams = page.find('caption', text='Current managers\n')
+    if teams:
+        teams_urls = []
+        teams_rows = teams.findNext('tbody').find_all('tr')
+        for tr in teams_rows:
+            for td in tr.find_all('td'):
+                team_link = td.findChild('a', recursive=False)
+                if team_link:
+                    teams_urls.append(urljoin(wiki_base_url, team_link.get('href')))
+                    break
+        return teams_urls
+    return None
 
 
 class Team(object):
@@ -96,14 +155,12 @@ class Player(object):
         birthplace_source = self._source.find('td', class_='birthplace').text
         birthplace_split = birthplace_source.strip().split(', ')
         birthplace = [None, None, None]
-        for i, item in reversed(list(enumerate(birthplace_split))):
-            birthplace[-i] = _remove_notation(item)
-        # if len(birthplace_split) < 2:
-        #     birthplace_split.insert(1, None)
-        # if len(birthplace_split) < 3:
-        #     birthplace_split.insert(1, None)
-        # country_state_city = [_remove_notation(item) for item in birthplace_split]
-        # return country_state_city
+        # Don't currently care about city districts, so this filters them out
+        if birthplace_split[-1].strip().lower() not in ['mexico', 'united states'] and len(birthplace_split) > 2:
+            birthplace[0], birthplace[2] = birthplace_split[1], birthplace_split[2]
+        else:
+            for i, item in reversed(list(enumerate(birthplace_split))):
+                birthplace[-i] = _remove_notation(item)
         return birthplace
 
     def getHeight(self):
@@ -113,9 +170,6 @@ class Player(object):
             height_m = heights_split[heights_split.index('m') - 1]
         else:
             height_m = [item.split('m')[0] for item in heights_split if 'm' in item][0]
-            # for item in heights_split:
-            #     if 'm' in item:
-            #         height_m = item.split('m')[0]
 
         return Decimal(height_m)
 
@@ -163,11 +217,17 @@ def _remove_notation(str):
     else:
         return str
 player_data = []
-team_urls = get_league_teams()
+team_urls = []
+league_urls = get_leagues_by_confederation()
+for url in league_urls:
+    retrieved_urls = get_league_teams(url)
+    team_urls.extend(retrieved_urls)
 for url in team_urls:
     player_data.extend(get_current_squad_info(url))
-for player in player_data:
-    print(player._to_dict())
+print(f'Found data for {len(player_data)} players on {len(team_urls)} teams in {len(league_urls)} leagues')
+with open("player_data.txt", "w") as file:
+    for player in player_data:
+        file.write(str(player._to_dict()))
 
 
 
