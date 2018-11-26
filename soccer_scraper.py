@@ -1,4 +1,6 @@
 from decimal import Decimal
+import itertools
+from multiprocessing.dummy import Pool as ThreadPool
 from time import sleep
 from urllib.parse import urljoin
 
@@ -49,9 +51,9 @@ def get_current_squad_info(team_url):
     members_table = members_section.parent.find_next_sibling('table')
     member_tables = members_table.find_all('table')
     member_cards = [vcard for table in member_tables for vcard in table.find_all(class_='vcard agent')]
-    team = Team(member_cards)
+    player_urls = get_player_urls(member_cards)
     player_data = []
-    for url in team.player_urls:
+    for url in player_urls:
         if 'redlink' not in url:
             player_data.append(get_player_info(url))
     return player_data
@@ -62,6 +64,7 @@ def get_player_info(player_url):
     page = BeautifulSoup(source.text, 'html.parser')
     player_card = page.find('table', class_='infobox vcard')
     player = Player(player_card)
+    player._source = []
     return player
 
 
@@ -113,6 +116,16 @@ def _find_teams_by_manager(page):
                     break
         return teams_urls
     return None
+
+def get_player_urls(current_squad):
+    player_urls = []
+    for card in current_squad:
+        tds = card.find_all('td')
+        link = tds[3].find('span').find('a')
+        if link:
+            href = link.get('href')
+            player_urls.append(urljoin(wiki_base_url, href))
+    return player_urls
 
 
 class Team(object):
@@ -194,7 +207,8 @@ class Player(object):
         return int(number_header.findNext('td').text.strip().split('[')[0]) if number_header else None
 
     def getCurrentTeam(self):
-        return self._source.find(text='Current team').findNext('td').text.strip()
+        current_team = self._source.find(text='Current team')
+        return self._source.find(text='Current team').findNext('td').text.strip() if current_team else None
 
     def getNationalTeam(self):
         header = self._source.find(text='National team')
@@ -231,12 +245,12 @@ def _remove_notation(str):
         return str
 
 def _get(url):
+    session = requests.Session()
     response = None
     i = 3
     while i > 0:
         try:
-            response = requests.get(url, verify=False)
-            # player_data.extend(get_current_squad_info(url))
+            response = session.get(url, verify=False)
             sleep(1)
             break
         except ConnectionError:
@@ -246,15 +260,27 @@ def _get(url):
         raise ConnectionError(f'Too many attempts to url {url}')
     return response
 
-player_data = []
-team_urls = []
+def multiprocess(func, iter):
+    pool = ThreadPool(4)
+    result = pool.map(func, iter)
+    pool.close()
+    pool.join()
+    return [item for sublist in result for item in sublist]
+
+# pool = ThreadPool(4)
+# player_data = []
+# team_urls = []
 league_urls = get_leagues_by_confederation()
-for url in league_urls:
-    retrieved_urls = get_league_teams(url)
-    team_urls.extend(retrieved_urls)
-    sleep(1)
-for url in team_urls:
-    player_data.extend(get_current_squad_info(url))
+team_urls = multiprocess(get_league_teams, league_urls)
+# for url in league_urls:
+#     retrieved_urls = get_league_teams(url)
+#     team_urls.extend(retrieved_urls)
+#     sleep(1)
+player_data = multiprocess(get_current_squad_info, team_urls)
+# pool.close()
+# pool.join()
+# for url in team_urls:
+#     player_data.extend(get_current_squad_info(url))
 
 print(f'Found data for {len(player_data)} players on {len(team_urls)} teams in {len(league_urls)} leagues')
 with open("player_data.txt", "w") as file:
