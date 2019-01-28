@@ -114,10 +114,10 @@ class Player(object):
 
     def get_first_last_name(self, name):
         name_parts = name.split()
-        if len(name_parts) > 2:
+        if len(name_parts) > 1:
             self.first_name = name_parts[0]
             self.last_name = ' '.join(name_parts[1:])
-        elif len(name_parts) == 1:
+        else:
             self.first_name = name_parts[0]
 
     def get_player_info(self, session):
@@ -179,7 +179,8 @@ class Player(object):
     def _get_current_team(self, source):
         current_team = source.find(text='Current team')
         if current_team:
-            self.club_team = source.find(text='Current team').findNext('td').text.strip()
+            club_team = source.find(text='Current team').findNext('td').text.strip().split('(')[0]
+            self.club_team = club_team
 
     def _get_national_team(self, source):
         header = source.find(text='National team')
@@ -321,20 +322,20 @@ def run():
                 get_teams_by_league(session, league)
                 for team in league.teams.values():
                     get_current_squad_info(session, team)
-                    with open("player_data.txt", "a") as file:
+                    with open("player_data.txt", "a", encoding='utf-8') as file:
                         for player in team.players:
                             file.write(str(player._to_dict()) + '\n')
 
     # print(f'Found data for {len(players)} players on {len(teams)} teams in {len(leagues)} leagues')
-    with open("player_data.txt", "w+") as file:
-        for conf in data.confederations.values():
-            print(conf.name)
-            for league in conf.leagues.values():
-                print(league.name)
-                for team in league.teams.values():
-                    print(team.name)
-                    for player in team.players:
-                        file.write(str(player._to_dict()))
+    # with open("player_data.txt", "w+") as file:
+    #     for conf in data.confederations.values():
+    #         print(conf.name)
+    #         for league in conf.leagues.values():
+    #             print(league.name)
+    #             for team in league.teams.values():
+    #                 print(team.name)
+    #                 for player in team.players:
+    #                     file.write(str(player._to_dict()))
 
 if __name__ == "__main__":
     run()
