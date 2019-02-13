@@ -16,9 +16,12 @@ uefa_url = constants.WIKI_BASE_URL + 'List_of_top-division_football_clubs_in_UEF
 concacaf_url = constants.WIKI_BASE_URL + 'List_of_top-division_football_clubs_in_CONCACAF_countries'
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-SQUAD_SECTIONS = ['Current_squad', 'Current_Squad', 'First-team_squad', 'First_team_squad', 'Current_first-team_squad', 'Players', 'First_team', 'Squad']
+SQUAD_SECTIONS = ['Current_squad', 'Current_Squad', 'Current_players', 'First-team_squad', 'First_team_squad', 'Current_first-team_squad', 'Players', 'First_team', 'Squad']
 
-data = [{'name': 'UEFA', 'url': uefa_url}, {'name': 'CONCACAF', 'url': concacaf_url}]
+data = [
+    # {'name': 'UEFA', 'url': uefa_url},
+    {'name': 'CONCACAF', 'url': concacaf_url}
+]
 
 
 class Confederation(object):
@@ -45,9 +48,12 @@ def get_teams_by_country(session, conf_url):
     country_tables = page.find_all('table', attrs={'class': 'wikitable'})
     teams_by_country = {}
     for country in country_tables:
-        country_name = country.find_previous_sibling('h2').findNext('span').text
-        team_rows = country.find_all('tr')[1:]
-        teams_by_country[country_name] = _extract_teams(team_rows)
+        try:
+            country_name = country.find_previous_sibling('h2').findNext('span').text
+            team_rows = country.find_all('tr')[1:]
+            teams_by_country[country_name] = _extract_teams(team_rows)
+        except AttributeError:
+            continue
     return teams_by_country
 
 def _extract_teams(team_divs):
@@ -70,8 +76,13 @@ def get_current_squad_info(session, team):
         members_section = page.find('span', attrs={'id': id})
         if members_section and members_section.text:
            break
-    members_table = members_section.parent.find_next_sibling('table')
-    member_tables = members_table.find_all('table')
+    try:
+        members_table = members_section.parent.find_next_sibling('table')
+        member_tables = members_table.find_all('table')
+    except AttributeError:
+        with open("failed_team.txt", "a", encoding='utf-8') as file:
+            file.write(str(team.url) + '\n')
+            return
     member_cards = [vcard for table in member_tables for vcard in table.find_all(class_='vcard agent')]
     players = get_players(member_cards)
     for player in players:

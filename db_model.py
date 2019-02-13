@@ -2,6 +2,8 @@ from sqlalchemy import create_engine, ForeignKey
 from sqlalchemy import Column, Date, Integer, String, DECIMAL
 from sqlalchemy.ext.declarative import declarative_base
 
+import constants
+
 Base = declarative_base()
 
 class Player(Base):
@@ -38,6 +40,6 @@ class Player(Base):
 
 
 def create_db():
-    engine = create_engine('sqlite:///C:\\Users\\HomePC\\PycharmProjects\\soccer_scraper\\player_data.db', echo=True)
+    engine = create_engine(constants.DB_ENGINE, echo=True)
     Base.metadata.create_all(engine)
 

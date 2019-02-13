@@ -1,9 +1,10 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import constants
 from db_model import Base, Player
 
-engine = create_engine('sqlite:///C:\\Users\\HomePC\\PycharmProjects\\soccer_scraper\\player_data.db', echo=True)
+engine = create_engine(constants.DB_ENGINE, echo=True)
 
 Base.metadata.bind = engine
 
